@@ -1,4 +1,4 @@
-// server.js
+// index.js (Vercel Serverless Ready)
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -9,33 +9,30 @@ import rateLimit from "express-rate-limit";
 import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 import admin from "firebase-admin";
 import Stripe from "stripe";
-import { createRequire } from "module";
-import cron from "node-cron";
-const require = createRequire(import.meta.url);
 
-const serviceAccount = require("./src/data/assignment11-b015f-firebase-adminsdk-fbsvc-c82e843442.json");
 // ---------- Environment ----------
 const {
     MONGODB_URI,
-    PORT = 5000,
     STRIPE_SECRET_KEY
 } = process.env;
 
 if (!MONGODB_URI) throw new Error("MONGODB_URI is missing");
 if (!STRIPE_SECRET_KEY) throw new Error("STRIPE_SECRET_KEY is missing");
-
-// ---------- Stripe ----------
-const stripe = new Stripe(STRIPE_SECRET_KEY);
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) throw new Error("FIREBASE_SERVICE_ACCOUNT is missing");
 
 // ---------- Firebase ----------
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
 try {
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
     });
 } catch (err) {
     console.error("Firebase Admin init failed", err);
-    process.exit(1);
 }
+
+// ---------- Stripe ----------
+const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 // ---------- Express ----------
 const app = express();
@@ -63,16 +60,16 @@ let db, usersCollection, foodCollection, foodRequestCollection, paymentCollectio
 
 async function connectDB() {
     await client.connect();
-    console.log("Connected to MongoDB");
-
     db = client.db("foodshare");
 
     usersCollection = db.collection("users");
     foodCollection = db.collection("food");
     foodRequestCollection = db.collection("requestedfoods");
     paymentCollection = db.collection("payments");
+
+    console.log("MongoDB connected");
 }
-connectDB().catch(err => {
+await connectDB().catch(err => {
     console.error("MongoDB connection failed:", err);
     process.exit(1);
 });
@@ -81,6 +78,7 @@ connectDB().catch(err => {
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization || "";
     if (!authHeader.startsWith("Bearer ")) return res.status(401).json({ error: "No token" });
+
     const token = authHeader.split(" ")[1];
     try {
         const decoded = await admin.auth().verifyIdToken(token);
@@ -92,27 +90,12 @@ const verifyToken = async (req, res, next) => {
     }
 };
 
-cron.schedule("0 0 * * *", async () => {
-    try {
-        const today = new Date();
-
-        // Update all foods where expiredDateTime < today and status is "available"
-        const result = await foodCollection.updateMany(
-            { expiredDateTime: { $lt: today }, foodStatus: "available" },
-            { $set: { foodStatus: "unavailable" } }
-        );
-
-        console.log(`[Cron] Updated ${result.modifiedCount} expired foods to unavailable`);
-    } catch (err) {
-        console.error("[Cron] Error updating expired foods:", err);
-    }
-});
-
 // ---------- Routes ----------
 
 app.get("/", (req, res) => res.send({ status: "ok", message: "FoodShare API running" }));
 
 // --- Users ---
+// Create or update user
 app.post("/users", async (req, res) => {
     try {
         const { email, name, photourl, membership = "no" } = req.body;
@@ -129,6 +112,7 @@ app.post("/users", async (req, res) => {
     }
 });
 
+// Get all users
 app.get("/users", async (req, res) => {
     try {
         const users = await usersCollection.find().toArray();
@@ -138,6 +122,19 @@ app.get("/users", async (req, res) => {
     }
 });
 
+// Get user by email
+app.get("/users/:email", async (req, res) => {
+    try {
+        const email = req.params.email;
+        const user = await usersCollection.findOne({ email });
+        if (!user) return res.status(404).json({ error: "User not found" });
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update membership
 app.patch("/users/membership/:email", async (req, res) => {
     try {
         const email = req.params.email;
@@ -148,7 +145,7 @@ app.patch("/users/membership/:email", async (req, res) => {
     }
 });
 
-// --- Food Routes ---
+// --- Food ---
 app.post("/food", async (req, res) => {
     try {
         const { donorEmail, foodName } = req.body;
@@ -167,7 +164,6 @@ app.get("/food", async (req, res) => {
         const search = req.query.search || "";
         const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
 
-        // Fetch only available and non-expired foods
         const filter = {
             foodStatus: "available",
             expiredDateTime: { $gt: new Date() },
@@ -177,13 +173,9 @@ app.get("/food", async (req, res) => {
         const foods = await foodCollection.find(filter).sort({ expiredDateTime: sortOrder }).toArray();
         res.json(foods);
     } catch (err) {
-        console.error("Error fetching foods:", err);
         res.status(500).json({ error: err.message });
     }
 });
-
-
-
 
 app.get("/food/:id", async (req, res) => {
     try {
@@ -218,26 +210,6 @@ app.patch("/food/:id", async (req, res) => {
     }
 });
 
-app.get("/food/count/:email", async (req, res) => {
-    try {
-        const count = await foodCollection.countDocuments({ donorEmail: req.params.email });
-        res.json({ count });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.get("/manage-food", verifyToken, async (req, res) => {
-    try {
-        const donorEmail = req.query.email;
-        if (donorEmail !== req.decoded.email) return res.status(403).json({ error: "Forbidden" });
-        const foods = await foodCollection.find({ donorEmail }).toArray();
-        res.json(foods);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // --- Food Requests ---
 app.post("/requestedfoods", async (req, res) => {
     try {
@@ -260,8 +232,7 @@ app.get("/myfoodrequest", verifyToken, async (req, res) => {
     }
 });
 
-// ---------- Payments ----------
-
+// --- Payments ---
 app.post("/create-payment-intent", async (req, res) => {
     try {
         const { price } = req.body;
@@ -292,5 +263,5 @@ app.post("/payments", async (req, res) => {
     }
 });
 
-// ---------- Start server ----------
-app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+// Export app for Vercel serverless
+export default app;
