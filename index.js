@@ -1,4 +1,3 @@
-// index.js (Vercel Serverless Ready)
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -12,490 +11,228 @@ import Stripe from "stripe";
 
 // ---------- Environment ----------
 const {
-    MONGODB_URI,
-    STRIPE_SECRET_KEY,
-    FB_SERVICE_KEY
+  MONGODB_URI,
+  STRIPE_SECRET_KEY,
+  FB_SERVICE_KEY
 } = process.env;
 
 if (!MONGODB_URI) throw new Error("MONGODB_URI is missing");
 if (!STRIPE_SECRET_KEY) throw new Error("STRIPE_SECRET_KEY is missing");
 if (!FB_SERVICE_KEY) throw new Error("FB_SERVICE_KEY is missing");
 
-// ---------- Firebase (Base64 Decode) ----------
+// ---------- Firebase Admin Setup ----------
 let serviceAccount;
 try {
-    const decodedKey = Buffer.from(FB_SERVICE_KEY, "base64").toString("utf8");
-    serviceAccount = JSON.parse(decodedKey);
-} catch (err) {
-    console.error("❌ Failed to decode Firebase service key:", err);
-    throw new Error("Invalid FB_SERVICE_KEY format");
+  serviceAccount = JSON.parse(
+    Buffer.from(FB_SERVICE_KEY, "base64").toString("utf8")
+  );
+} catch (error) {
+  console.error("❌ Invalid base64 Firebase key:", error);
+  throw new Error("FB_SERVICE_KEY is not valid base64 JSON");
 }
 
-// Initialize Firebase Admin only if not already initialized
 if (!admin.apps.length) {
-    try {
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-        });
-        console.log("✅ Firebase Admin Initialized");
-    } catch (err) {
-        console.error("❌ Firebase Admin init failed:", err);
-        throw err;
-    }
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+  console.log("✅ Firebase Admin Initialized");
 }
 
 // ---------- Stripe ----------
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
-// ---------- Express ----------
+// ---------- Express App ----------
 const app = express();
 app.use(helmet());
-app.use(express.json({ limit: "10mb" }));
-
-// Rate limiter
-app.use(rateLimit({
-    windowMs: 60 * 1000,
-    max: 120,
-    standardHeaders: true,
-    legacyHeaders: false,
-}));
-
-// CORS
-const allowedOrigins = [
+app.use(cors({
+  origin: [
     "http://localhost:5173",
     "https://assignment11-b015f.web.app",
     "https://assignment11-b015f.firebaseapp.com"
-];
-app.use(cors({
-    origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error("Not allowed by CORS"));
-        }
-    },
-    credentials: true
+  ],
+  credentials: true
 }));
+app.use(express.json({ limit: "10mb" }));
+app.use(rateLimit({ windowMs: 60000, max: 120 }));
 
-// ---------- MongoDB ----------
-const client = new MongoClient(MONGODB_URI, {
-    serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-    }
-});
-
-let db, usersCollection, foodCollection, foodRequestCollection, paymentCollection;
+// ---------- MongoDB Lazy Connection ----------
+let client;
+let db;
+let usersCollection, foodCollection, foodRequestCollection, paymentCollection;
 
 async function connectDB() {
-    try {
-        await client.connect();
-        await client.db("admin").command({ ping: 1 });
-
-        db = client.db("foodshare");
-        usersCollection = db.collection("users");
-        foodCollection = db.collection("food");
-        foodRequestCollection = db.collection("requestedfoods");
-        paymentCollection = db.collection("payments");
-
-        console.log("✅ MongoDB connected successfully");
-    } catch (err) {
-        console.error("❌ MongoDB connection failed:", err);
-        throw err;
-    }
+  if (!client) {
+    client = new MongoClient(MONGODB_URI, {
+      serverApi: { version: ServerApiVersion.v1, strict: true }
+    });
+    await client.connect();
+    db = client.db("foodshare");
+    usersCollection = db.collection("users");
+    foodCollection = db.collection("food");
+    foodRequestCollection = db.collection("requestedfoods");
+    paymentCollection = db.collection("payments");
+    console.log("✅ MongoDB Connected Successfully");
+  }
 }
 
-// Connect to DB
-await connectDB().catch(err => {
-    console.error("Failed to connect to database:", err);
-    process.exit(1);
-});
+// ---------- Firebase Token Verify Middleware ----------
+async function verifyToken(req, res, next) {
+  const authHeader = req.headers.authorization || "";
 
-// ---------- Firebase Token Verification Middleware ----------
-const verifyToken = async (req, res, next) => {
-    const authHeader = req.headers.authorization || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorized, no token provided" });
+  }
 
-    if (!authHeader.startsWith("Bearer ")) {
-        return res.status(401).json({ error: "No token provided" });
-    }
-
-    const token = authHeader.split(" ")[1];
-
-    try {
-        const decoded = await admin.auth().verifyIdToken(token);
-        req.decoded = decoded;
-        next();
-    } catch (err) {
-        console.error("❌ Token verification failed:", err.message);
-        res.status(403).json({ error: "Invalid or expired token" });
-    }
-};
+  try {
+    const decoded = await admin.auth().verifyIdToken(authHeader.split(" ")[1]);
+    req.decoded = decoded;
+    next();
+  } catch {
+    return res.status(403).json({ error: "Invalid or expired token" });
+  }
+}
 
 // ---------- Routes ----------
 
-// Health check
+// Health Check
 app.get("/", (req, res) => {
-    res.json({
-        status: "ok",
-        message: "FoodShare API is running",
-        timestamp: new Date().toISOString()
-    });
+  res.json({ status: "OK ✅", message: "FoodShare API Running" });
 });
 
-// --- Users ---
+// Create or Update User
 app.post("/users", async (req, res) => {
-    try {
-        const { email, name, photourl, membership = "no" } = req.body;
+  await connectDB();
+  const { email, name, photourl, membership = "no" } = req.body;
 
-        if (!email) {
-            return res.status(400).json({ error: "Email is required" });
-        }
+  const result = await usersCollection.updateOne(
+    { email },
+    {
+      $setOnInsert: { email, membership, createdAt: new Date() },
+      $set: { name, photourl, updatedAt: new Date() }
+    },
+    { upsert: true }
+  );
 
-        const result = await usersCollection.updateOne(
-            { email },
-            {
-                $setOnInsert: { email, membership, createdAt: new Date() },
-                $set: { name, photourl, updatedAt: new Date() }
-            },
-            { upsert: true }
-        );
-
-        res.json({
-            success: true,
-            result,
-            message: result.upsertedCount > 0 ? "User created" : "User updated"
-        });
-    } catch (err) {
-        console.error("Error in POST /users:", err);
-        res.status(500).json({ error: err.message });
-    }
+  res.json({ success: true, upserted: result.upsertedCount > 0 });
 });
 
-// Get all users (consider adding pagination)
+// Get All Users
 app.get("/users", async (req, res) => {
-    try {
-        const users = await usersCollection.find().toArray();
-        res.json(users);
-    } catch (err) {
-        console.error("Error in GET /users:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  res.json(await usersCollection.find().toArray());
 });
 
-// Get user by email
+// Get Single User
 app.get("/users/:email", async (req, res) => {
-    try {
-        const email = req.params.email;
-        const user = await usersCollection.findOne({ email });
-
-        if (!user) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        res.json(user);
-    } catch (err) {
-        console.error("Error in GET /users/:email:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const user = await usersCollection.findOne({ email: req.params.email });
+  user ? res.json(user) : res.status(404).json({ error: "User not found" });
 });
 
-// Update membership
+// Update Membership
 app.patch("/users/membership/:email", async (req, res) => {
-    try {
-        const email = req.params.email;
-        const result = await usersCollection.updateOne(
-            { email },
-            { $set: { membership: "yes", membershipUpdatedAt: new Date() } }
-        );
-
-        if (result.matchedCount === 0) {
-            return res.status(404).json({ error: "User not found" });
-        }
-
-        res.json({ success: true, result });
-    } catch (err) {
-        console.error("Error in PATCH /users/membership/:email:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const result = await usersCollection.updateOne(
+    { email: req.params.email },
+    { $set: { membership: "yes", membershipUpdatedAt: new Date() } }
+  );
+  result.matchedCount === 0
+    ? res.status(404).json({ error: "User not found" })
+    : res.json({ success: true });
 });
 
-// --- Food ---
+// Add Food
 app.post("/food", async (req, res) => {
-    try {
-        const { donorEmail, foodName } = req.body;
-
-        if (!donorEmail || !foodName) {
-            return res.status(400).json({ error: "donorEmail and foodName are required" });
-        }
-
-        const data = {
-            ...req.body,
-            createdAt: new Date(),
-            foodStatus: req.body.foodStatus || "available"
-        };
-
-        const result = await foodCollection.insertOne(data);
-        res.status(201).json({ success: true, insertedId: result.insertedId });
-    } catch (err) {
-        console.error("Error in POST /food:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const data = { ...req.body, createdAt: new Date(), foodStatus: "available" };
+  const result = await foodCollection.insertOne(data);
+  res.status(201).json({ success: true, insertedId: result.insertedId });
 });
 
+// Get Foods (search + sort)
 app.get("/food", async (req, res) => {
-    try {
-        const search = req.query.search || "";
-        const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
+  await connectDB();
+  const search = req.query.search || "";
+  const sort = req.query.sortOrder === "asc" ? 1 : -1;
 
-        const filter = {
-            foodStatus: "available",
-            expiredDateTime: { $gt: new Date() },
-            ...(search && { foodName: { $regex: search, $options: "i" } })
-        };
+  const foods = await foodCollection
+    .find({
+      foodStatus: "available",
+      expiredDateTime: { $gt: new Date() },
+      ...(search && { foodName: { $regex: search, $options: "i" } })
+    })
+    .sort({ expiredDateTime: sort })
+    .toArray();
 
-        const foods = await foodCollection
-            .find(filter)
-            .sort({ expiredDateTime: sortOrder })
-            .toArray();
-
-        res.json(foods);
-    } catch (err) {
-        console.error("Error in GET /food:", err);
-        res.status(500).json({ error: err.message });
-    }
+  res.json(foods);
 });
 
+// Get Single Food
 app.get("/food/:id", async (req, res) => {
-    try {
-        if (!ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({ error: "Invalid food ID" });
-        }
+  await connectDB();
+  if (!ObjectId.isValid(req.params.id))
+    return res.status(400).json({ error: "Invalid ID" });
 
-        const food = await foodCollection.findOne({ _id: new ObjectId(req.params.id) });
-
-        if (!food) {
-            return res.status(404).json({ error: "Food not found" });
-        }
-
-        res.json(food);
-    } catch (err) {
-        console.error("Error in GET /food/:id:", err);
-        res.status(500).json({ error: err.message });
-    }
+  const food = await foodCollection.findOne({ _id: new ObjectId(req.params.id) });
+  food ? res.json(food) : res.status(404).json({ error: "Food not found" });
 });
 
+// Update Food
 app.put("/food/:id", async (req, res) => {
-    try {
-        if (!ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({ error: "Invalid food ID" });
-        }
-
-        const { _id, ...updateData } = req.body;
-        updateData.updatedAt = new Date();
-
-        const result = await foodCollection.updateOne(
-            { _id: new ObjectId(req.params.id) },
-            { $set: updateData }
-        );
-
-        if (result.matchedCount === 0) {
-            return res.status(404).json({ error: "Food not found" });
-        }
-
-        res.json({ success: true, message: "Food updated", result });
-    } catch (err) {
-        console.error("Error in PUT /food/:id:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const { _id, ...updateData } = req.body;
+  updateData.updatedAt = new Date();
+  const result = await foodCollection.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: updateData }
+  );
+  res.json({ success: true, result });
 });
 
-app.patch("/food/:id", async (req, res) => {
-    try {
-        if (!ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({ error: "Invalid food ID" });
-        }
-
-        const { foodStatus } = req.body;
-
-        const result = await foodCollection.updateOne(
-            { _id: new ObjectId(req.params.id) },
-            {
-                $set: {
-                    foodStatus: foodStatus || "requested",
-                    statusUpdatedAt: new Date()
-                }
-            }
-        );
-
-        if (result.matchedCount === 0) {
-            return res.status(404).json({ error: "Food not found" });
-        }
-
-        res.json({ success: true, result });
-    } catch (err) {
-        console.error("Error in PATCH /food/:id:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Delete food (optional - if needed)
-app.delete("/food/:id", verifyToken, async (req, res) => {
-    try {
-        if (!ObjectId.isValid(req.params.id)) {
-            return res.status(400).json({ error: "Invalid food ID" });
-        }
-
-        const result = await foodCollection.deleteOne({ _id: new ObjectId(req.params.id) });
-
-        if (result.deletedCount === 0) {
-            return res.status(404).json({ error: "Food not found" });
-        }
-
-        res.json({ success: true, message: "Food deleted" });
-    } catch (err) {
-        console.error("Error in DELETE /food/:id:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- Food Requests ---
+// Request Food
 app.post("/requestedfoods", async (req, res) => {
-    try {
-        const data = {
-            ...req.body,
-            requestedAt: new Date(),
-            status: req.body.status || "pending"
-        };
-
-        const result = await foodRequestCollection.insertOne(data);
-        res.status(201).json({ success: true, insertedId: result.insertedId });
-    } catch (err) {
-        console.error("Error in POST /requestedfoods:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const result = await foodRequestCollection.insertOne({
+    ...req.body,
+    requestedAt: new Date(),
+    status: "pending"
+  });
+  res.json({ success: true, insertedId: result.insertedId });
 });
 
+// My Requests
 app.get("/myfoodrequest", verifyToken, async (req, res) => {
-    try {
-        const userEmail = req.query.email;
-
-        if (userEmail !== req.decoded.email) {
-            return res.status(403).json({ error: "Forbidden: Email mismatch" });
-        }
-
-        const requests = await foodRequestCollection
-            .find({ userEmail })
-            .sort({ requestedAt: -1 })
-            .toArray();
-
-        res.json(requests);
-    } catch (err) {
-        console.error("Error in GET /myfoodrequest:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const requests = await foodRequestCollection
+    .find({ userEmail: req.decoded.email })
+    .sort({ requestedAt: -1 })
+    .toArray();
+  res.json(requests);
 });
 
-// Get all food requests (for admin/donor)
-app.get("/requestedfoods", verifyToken, async (req, res) => {
-    try {
-        const requests = await foodRequestCollection
-            .find()
-            .sort({ requestedAt: -1 })
-            .toArray();
-
-        res.json(requests);
-    } catch (err) {
-        console.error("Error in GET /requestedfoods:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- Payments ---
+// Create Payment Intent
 app.post("/create-payment-intent", async (req, res) => {
-    try {
-        const { price } = req.body;
-
-        if (!price || price <= 0) {
-            return res.status(400).json({ error: "Invalid price amount" });
-        }
-
-        const paymentIntent = await stripe.paymentIntents.create({
-            amount: Math.round(price * 100), // Convert to cents
-            currency: "usd",
-            automatic_payment_methods: { enabled: true },
-        });
-
-        res.json({ clientSecret: paymentIntent.client_secret });
-    } catch (err) {
-        console.error("Error in POST /create-payment-intent:", err);
-        res.status(500).json({ error: err.message });
-    }
+  const { price } = req.body;
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: Math.round(price * 100),
+    currency: "usd",
+    automatic_payment_methods: { enabled: true }
+  });
+  res.json({ clientSecret: paymentIntent.client_secret });
 });
 
+// Save Payment
 app.post("/payments", async (req, res) => {
-    try {
-        const { email, amount, transactionId, status, date } = req.body;
-
-        if (!email || !amount || !transactionId || !status) {
-            return res.status(400).json({ error: "Missing required payment data" });
-        }
-
-        const data = {
-            email,
-            amount,
-            transactionId,
-            status,
-            date: date || new Date(),
-            createdAt: new Date()
-        };
-
-        const result = await paymentCollection.insertOne(data);
-        res.status(201).json({ success: true, insertedId: result.insertedId });
-    } catch (err) {
-        console.error("Error in POST /payments:", err);
-        res.status(500).json({ error: err.message });
-    }
+  await connectDB();
+  const result = await paymentCollection.insertOne({
+    ...req.body,
+    createdAt: new Date()
+  });
+  res.json({ success: true, insertedId: result.insertedId });
 });
 
-// Get payments by email
-app.get("/payments/:email", verifyToken, async (req, res) => {
-    try {
-        const email = req.params.email;
+// 404
+app.use("*", (_, res) => res.status(404).json({ error: "Route not found" }));
 
-        if (email !== req.decoded.email) {
-            return res.status(403).json({ error: "Forbidden: Email mismatch" });
-        }
-
-        const payments = await paymentCollection
-            .find({ email })
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        res.json(payments);
-    } catch (err) {
-        console.error("Error in GET /payments/:email:", err);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ error: "Route not found" });
-});
-
-// Error handler
-app.use((err, req, res, next) => {
-    console.error("Unhandled error:", err);
-    res.status(500).json({ error: "Internal server error" });
-});
-
-// Graceful shutdown
-process.on("SIGINT", async () => {
-    console.log("Shutting down gracefully...");
-    await client.close();
-    process.exit(0);
-});
-
-// Export app for Vercel serverless
+// ✅ Export for Vercel
 export default app;
