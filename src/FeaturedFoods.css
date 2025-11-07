@@ -1,0 +1,205 @@
+/* ==== GREEN THEME CARD STYLING ==== */
+
+.card {
+  --card-bg: #ffffff;
+  --card-accent: #22c55e; /* Green accent */
+  --card-text: #475569; /* Gray-600 text */
+
+  width: 100%;
+  background: var(--card-bg);
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 10px 15px -3px rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.card__shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0.6) 50%,
+    rgba(255, 255, 255, 0) 60%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.card__glow {
+  position: absolute;
+  inset: -10px;
+  background: radial-gradient(
+    circle at 50% 0%,
+    rgba(34, 197, 94, 0.35) 0%,
+    rgba(34, 197, 94, 0) 70%
+  );
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.card__content {
+  padding: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65em;
+  position: relative;
+  z-index: 2;
+  color: var(--card-text);
+}
+
+.card__badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #22c55e;
+  color: white;
+  padding: 0.25em 0.55em;
+  border-radius: 999px;
+  font-size: 0.7em;
+  font-weight: 600;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 0.4s ease 0.1s;
+}
+
+.card__image {
+  width: 100%;
+  height: 130px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.card__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card__title {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: var(--card-text);
+  transition: 0.3s;
+}
+
+.card__description {
+  font-size: 0.8em;
+  color: var(--card-text);
+  opacity: 1;
+  transition: 0.3s;
+}
+
+.card__footer {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: auto;
+}
+
+.card__button {
+  background: var(--card-accent);
+  padding: 0.45em 1em;
+  color: white;
+  border-radius: 8px;
+  font-size: 0.85em;
+  font-weight: 600;
+  transition: 0.3s;
+}
+
+.card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 18px 30px rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.card:hover .card__shine {
+  opacity: 1;
+  animation: shine 3s infinite;
+}
+
+.card:hover .card__glow {
+  opacity: 1;
+}
+
+.card:hover .card__badge {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.card:hover .card__title,
+.card:hover .card__description {
+  color: #22c55e;
+}
+
+.card:hover .card__button {
+  background: #24725e;
+}
+
+/* From Uiverse.io by Creatlydev — modified to green theme */
+.seemorebutton {
+  --clr: #22c55e; /* Soft green */
+  line-height: 1;
+  text-decoration: none;
+  display: inline-flex;
+  border: none;
+  cursor: pointer;
+  align-items: center;
+  gap: 0.75rem;
+  background-color: var(--clr);
+  color: #fff;
+  border-radius: 10rem;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  padding-left: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 0.3s;
+}
+
+.button__icon-wrapper {
+  flex-shrink: 0;
+  width: 25px;
+  height: 25px;
+  position: relative;
+  color: var(--clr);
+  background-color: #fff;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.seemorebutton:hover {
+  background-color: #24725e; /* Deep green hover */
+}
+
+.seemorebutton:hover .button__icon-wrapper {
+  color: #24725e;
+}
+
+.button__icon-svg--copy {
+  position: absolute;
+  transform: translate(-150%, 150%);
+}
+
+.seemorebutton:hover .button__icon-svg:first-child {
+  transition: transform 0.3s ease-in-out;
+  transform: translate(150%, -150%);
+}
+
+.seemorebutton:hover .button__icon-svg--copy {
+  transition: transform 0.3s ease-in-out 0.1s;
+  transform: translate(0);
+}
+
+@keyframes shine {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}

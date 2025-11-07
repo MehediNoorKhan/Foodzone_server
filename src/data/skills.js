@@ -1,0 +1,121 @@
+import {
+    FaReact,
+    FaNodeJs,
+    FaHtml5,
+    FaCss3Alt,
+    FaDatabase,
+    FaGitAlt,
+} from "react-icons/fa";
+import {
+    SiJavascript,
+    SiNextdotjs,
+    SiMysql,
+    SiTailwindcss,
+    SiDaisyui,
+    SiBootstrap,
+    SiFigma,
+    SiExpress,
+} from "react-icons/si";
+
+export const skills = [
+    {
+        id: 1,
+        icon: FaHtml5,
+        title: "HTML5",
+        description: "Crafting semantic and accessible web structures.",
+        bg: "#e34c26",
+    },
+    {
+        id: 2,
+        icon: FaCss3Alt,
+        title: "CSS3",
+        description: "Designing visually appealing and responsive layouts.",
+        bg: "#264de4",
+    },
+    {
+        id: 3,
+        icon: SiTailwindcss,
+        title: "Tailwind CSS",
+        description: "Utility-first CSS framework for fast styling.",
+        bg: "#38b2ac",
+    },
+    {
+        id: 4,
+        icon: SiDaisyui,
+        title: "DaisyUI",
+        description: "Component library built on Tailwind CSS.",
+        bg: "#fcd34d",
+    },
+    {
+        id: 5,
+        icon: SiBootstrap,
+        title: "Bootstrap",
+        description: "Responsive UI design and components.",
+        bg: "#563d7c",
+    },
+    {
+        id: 6,
+        icon: SiJavascript,
+        title: "JavaScript (ES6+)",
+        description: "Modern JavaScript features and concepts.",
+        bg: "#f7df1e",
+    },
+    {
+        id: 7,
+        icon: FaNodeJs,
+        title: "Node.js",
+        description: "Developing scalable backend services.",
+        bg: "#3c873a",
+    },
+
+    {
+        id: 8,
+        icon: FaReact,
+        title: "React.js",
+        description: "Building dynamic and responsive user interfaces.",
+        bg: "#61dafb",
+    },
+    {
+        id: 9,
+        icon: SiExpress,
+        title: "Express.js",
+        description: "Efficient RESTful API development.",
+        bg: "#000000",
+    },
+    {
+        id: 10,
+        icon: SiNextdotjs,
+        title: "Next.js",
+        description: "Server-side rendering and static site generation.",
+        bg: "#000000",
+    },
+
+    {
+        id: 11,
+        icon: FaDatabase,
+        title: "MongoDB",
+        description: "Managing NoSQL databases efficiently.",
+        bg: "#47a248",
+    },
+    {
+        id: 12,
+        icon: SiMysql,
+        title: "MySQL",
+        description: "Relational database design and queries.",
+        bg: "#00758f",
+    },
+    {
+        id: 13,
+        icon: FaGitAlt,
+        title: "Git & GitHub",
+        description: "Version control and collaborative development.",
+        bg: "#f05032",
+    },
+    {
+        id: 14,
+        icon: SiFigma,
+        title: "Figma",
+        description: "Designing UI/UX and prototyping.",
+        bg: "#a259ff",
+    },
+];
